@@ -163,7 +163,7 @@
     <div class="chat-container">
         <div class="chat-header">
             <h1>🤖 Serverless AI Chatbot</h1>
-            <p>Powered by AWS Lambda & OpenAI</p>
+            <p>Logged in as <span id="userName"></span> | <a href="#" onclick="logout()" style="color: white; text-decoration: underline;">Logout</a></p>
         </div>
         
         <div class="session-info">
@@ -190,6 +190,26 @@
     </div>
 
     <script>
+        // Check authentication on load
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+            window.location.href = '/login.html';
+        }
+
+        // Verify token with server
+        fetch(window.location.origin + '/api/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+        .then(res => {
+            if (!res.ok) throw new Error('Not authenticated');
+            return res.json();
+        })
+        .catch(() => {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user');
+            window.location.href = '/login.html';
+        });
+
         // Generate unique session ID
         let sessionId = localStorage.getItem('chat_session_id');
         if (!sessionId) {
@@ -197,6 +217,18 @@
             localStorage.setItem('chat_session_id', sessionId);
         }
         document.getElementById('sessionId').textContent = sessionId;
+
+        // Display user info
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        if (user.name) {
+            document.getElementById('userName').textContent = user.name;
+        }
+
+        function logout() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user');
+            window.location.href = '/login.html';
+        }
 
         // API URL - use relative path for local, or update for AWS deployment
         // This works for both localhost and IP access
@@ -233,10 +265,11 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
             try {
-                const response = await fetch(API_URL + '/chat', {
+                const response = await fetch(API_URL + '/api/chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
                     },
                     body: JSON.stringify({
                         message: message,
