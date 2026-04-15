@@ -1,0 +1,117 @@
+service: serverless-ai-chatbot
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  environment:
+    OPENAI_API_KEY: ${ssm:/chatbot/openai_api_key~true}
+    DYNAMODB_TABLE: ${self:custom.tableName}
+    REGION: ${self:provider.region}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource: 
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.tableName}"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.tableName}/index/*"
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "arn:aws:logs:${self:provider.region}:*:*"
+
+custom:
+  tableName: chatbot-conversations-${self:provider.stage}
+
+functions:
+  chat:
+    handler: src/functions/chat.handler
+    events:
+      - http:
+          path: chat
+          method: post
+          cors: true
+    description: Main chat endpoint
+    timeout: 30
+    memorySize: 256
+
+  getConversations:
+    handler: src/functions/getConversations.handler
+    events:
+      - http:
+          path: conversations/{sessionId}
+          method: get
+          cors: true
+    description: Get conversation history
+    timeout: 10
+    memorySize: 128
+
+  deleteConversation:
+    handler: src/functions/deleteConversation.handler
+    events:
+      - http:
+          path: conversations/{sessionId}
+          method: delete
+          cors: true
+    description: Delete conversation
+    timeout: 10
+    memorySize: 128
+
+  analytics:
+    handler: src/functions/analytics.handler
+    events:
+      - http:
+          path: analytics
+          method: get
+          cors: true
+          authorizer: aws_iam
+    description: Get chat analytics
+    timeout: 10
+    memorySize: 128
+
+resources:
+  Resources:
+    ConversationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.tableName}
+        AttributeDefinitions:
+          - AttributeName: sessionId
+            AttributeType: S
+          - AttributeName: timestamp
+            AttributeType: S
+        KeySchema:
+          - AttributeName: sessionId
+            KeyType: HASH
+          - AttributeName: timestamp
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+        StreamSpecification:
+          StreamViewType: NEW_IMAGE
+
+  Outputs:
+    ApiGatewayUrl:
+      Description: "API Gateway endpoint URL"
+      Value: !Join
+        - ''
+        - - https://
+          - !Ref ApiGatewayRestApi
+          - ".execute-api.${self:provider.region}.amazonaws.com/${self:provider.stage}"
+    DynamoDBTable:
+      Description: "DynamoDB Table Name"
+      Value: ${self:custom.tableName}
